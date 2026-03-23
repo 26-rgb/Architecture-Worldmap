@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATLAS — World Map</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+</head>
+<body>
+
+  <div id="loading">
+    <div class="load-inner">
+      <div class="load-dot"></div>
+      <div class="load-text">地図データを読み込み中...</div>
+    </div>
+  </div>
+
+  <div id="ui-overlay">
+    <div id="header">
+      <div id="logo">
+        <span class="logo-dot"></span>
+        <span class="logo-text">ATLAS</span>
+      </div>
+      <div id="search-box">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="search-input" placeholder="建築物を検索 (Ctrl+K)..." autocomplete="off"/>
+        <div id="search-results"></div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <button class="ctrl-btn" id="btn-zoom-in" title="ズームイン">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <div id="zoom-level">1.0x</div>
+      <button class="ctrl-btn" id="btn-zoom-out" title="ズームアウト">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <div class="ctrl-divider"></div>
+      <button class="ctrl-btn" id="btn-reset" title="全体表示">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <div class="ctrl-divider"></div>
+      <button class="ctrl-btn active" id="btn-theme-dark" title="ダーク">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="ctrl-btn" id="btn-theme-light" title="ライト">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+    </div>
+
+    <!-- 建築物情報パネル -->
+    <div id="bldg-panel" class="hidden">
+      <div id="bldg-close">✕</div>
+      <div id="bldg-image-wrap">
+        <img id="bldg-image" src="" alt="" />
+      </div>
+      <div id="bldg-body">
+        <div id="bldg-no"></div>
+        <h2 id="bldg-name"></h2>
+        <div id="bldg-grid">
+          <div class="info-item"><div class="info-label">用途</div><div class="info-value" id="bldg-usage"></div></div>
+          <div class="info-item"><div class="info-label">竣工年</div><div class="info-value" id="bldg-year"></div></div>
+          <div class="info-item"><div class="info-label">設計者</div><div class="info-value" id="bldg-designer"></div></div>
+          <div class="info-item"><div class="info-label">場所</div><div class="info-value" id="bldg-place"></div></div>
+        </div>
+        <div id="bldg-coords"></div>
+      </div>
+    </div>
+
+    <div id="tooltip"></div>
+    <div id="scalebar"><div id="scalebar-line"></div><div id="scalebar-label"></div></div>
+    <div id="coords-display">Lat: 0.00°  Lng: 0.00°</div>
+
+    <!-- ローカル環境用CSVファイル読み込みボタン -->
+    <div id="csv-loader">
+      <label id="csv-label" title="data.csvが自動読み込みされない場合はここから選択">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        CSV読込
+        <input type="file" id="csv-file-input" accept=".csv,.tsv,.txt" style="display:none">
+      </label>
+    </div>
+  </div>
+
+  <canvas id="map-canvas"></canvas>
+  <script src="map.js"></script>
+</body>
+</html>
