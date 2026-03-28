@@ -134,7 +134,8 @@ let st = {
   geoFeatures: [],
   buildings: [],      // CSVから読み込んだ建築物データ
   stars: [],
-  paths: new Map(),
+  paths: new Map(),    // Path2Dキャッシュ (id -> Path2D)
+  pathCacheKey: '',    // キャッシュ有効キー
 };
 
 // ── Resize ───────────────────────────────────────────
@@ -142,6 +143,7 @@ function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
   st.paths.clear();
+  st.pathCacheKey = '';
   generateStars();
   render();
 }
@@ -192,6 +194,55 @@ function unproject(x, y) {
   return [lng, latr * 180 / Math.PI];
 }
 
+// ── フィーチャーのジオグラフィBBox（経度緯度ベース）を計算 ──
+function computeGeoBBox(geometry) {
+  let minLng=Infinity, maxLng=-Infinity, minLat=Infinity, maxLat=-Infinity;
+  function scanRing(coords) {
+    let prevLng = coords[0][0];
+    for (const [rawLng, lat] of coords) {
+      let lng = rawLng;
+      while (lng - prevLng >  180) lng -= 360;
+      while (lng - prevLng < -180) lng += 360;
+      prevLng = lng;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+  }
+  if (geometry.type === 'Polygon') geometry.coordinates.forEach(scanRing);
+  else if (geometry.type === 'MultiPolygon') geometry.coordinates.forEach(p => p.forEach(scanRing));
+  // 表示範囲にシフト補正
+  while (maxLng < MAP_LNG_MIN) { minLng += 360; maxLng += 360; }
+  while (minLng > MAP_LNG_MAX) { minLng -= 360; maxLng -= 360; }
+  return { minLng, maxLng, minLat, maxLat };
+}
+
+// ── 画面Viewport（ピクセル）とfeatureのgeoBBoxが交差するか ──
+function isFeatureVisible(f) {
+  if (!f.geoBBox) return true; // BBoxなし → 常に描画
+  const W = canvas.width, H = canvas.height;
+  const margin = 60;
+  const { minLng, maxLng, minLat, maxLat } = f.geoBBox;
+  const [x0, y0] = project(minLng, maxLat); // 左上
+  const [x1, y1] = project(maxLng, minLat); // 右下
+  return x1+margin > 0 && x0-margin < W && y1+margin > 0 && y0-margin < H;
+}
+
+// ── Path2Dキャッシュ付き取得（transform変化で自動一括無効化）──
+function getPath(f) {
+  // scale/offset が変わったら全キャッシュクリア
+  const key = `${st.scale.toFixed(6)},${st.offsetX.toFixed(2)},${st.offsetY.toFixed(2)}`;
+  if (key !== st.pathCacheKey) {
+    st.paths.clear();
+    st.pathCacheKey = key;
+  }
+  if (!st.paths.has(f.id)) {
+    st.paths.set(f.id, buildPathAll(f.geometry));
+  }
+  return st.paths.get(f.id);
+}
+
 // ── Build Path2D for a GeoJSON geometry ──────────────
 // 経度を連続空間に正規化して1枚だけ描画。
 // -180°〜+200°の範囲に収まるよう、各リングの代表経度を基準にオフセットを選ぶ。
@@ -235,7 +286,14 @@ function buildPathAll(geometry) {
 }
 
 // ── Render ───────────────────────────────────────────
+let _rafPending = false;
 function render() {
+  if (_rafPending) return;
+  _rafPending = true;
+  requestAnimationFrame(_doRender);
+}
+function _doRender() {
+  _rafPending = false;
   const W = canvas.width, H = canvas.height;
   const dark = st.theme === 'dark';
   ctx.clearRect(0, 0, W, H);
@@ -263,8 +321,9 @@ function render() {
   // Grid
   drawGrid(dark);
 
-  // Countries — rebuild paths each frame (transform changed)
+  // Countries — viewport culling + Path2Dキャッシュ
   for (const f of st.geoFeatures) {
+    if (!isFeatureVisible(f)) continue;
     drawFeature(f, dark);
   }
 
@@ -274,7 +333,7 @@ function render() {
   drawBuildings(dark);
 
   updateScaleBar();
-}
+}  // end _doRender
 
 function drawGrid(dark) {
   ctx.save();
@@ -317,7 +376,7 @@ function drawFeature(f, dark) {
   const hov = st.hovered === id;
   const sel = st.selected === id;
 
-  const path = buildPathAll(f.geometry);
+  const path = getPath(f);
 
   ctx.save();
   if (sel) {
@@ -496,7 +555,8 @@ function updateScaleBar() {
 // ── Hit test ─────────────────────────────────────────
 function hitTest(mx, my) {
   for (const f of st.geoFeatures) {
-    const path = buildPathAll(f.geometry);
+    if (!isFeatureVisible(f)) continue;
+    const path = getPath(f);
     if (ctx.isPointInPath(path, mx, my)) return f.id;
   }
   return null;
@@ -680,7 +740,7 @@ function animateTo(targetScale, lng, lat, dur=750) {
     document.getElementById('zoom-level').textContent = st.scale >= 10
       ? st.scale.toFixed(0)+'x'
       : st.scale.toFixed(1)+'x';
-    render();
+    _doRender();
     if (t<1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
@@ -873,7 +933,7 @@ function applyFeaturesGradually(newFeatureMap, targetLevel) {
       if (deadline && deadline.timeRemaining && deadline.timeRemaining() < 3) break;
       const id = ids[idx++];
       const fi = st.geoFeatures.findIndex(f => f.id === id);
-      if (fi !== -1) st.geoFeatures[fi] = newFeatureMap.get(id);
+      if (fi !== -1) { st.geoFeatures[fi] = newFeatureMap.get(id); st.paths.delete(id); }
     }
     render();
     if (idx < ids.length) {
@@ -946,15 +1006,15 @@ function applyResLevel(topo, targetLevel) {
   for (const f of geojson.features) {
     const id = +f.id;
     const geo = (step <= 1) ? f.geometry : simplifyGeometry(f.geometry, step);
-    const entry = { id, geometry: geo, centroid: computeCentroid(geo) };
+    const entry = { id, geometry: geo, centroid: computeCentroid(geo), geoBBox: computeGeoBBox(geo) };
     if (visIds.has(id)) priorityMap.set(id, entry);
     else restMap.set(id, entry);
   }
 
-  // 画面内を即時適用
+  // 画面内を即時適用（キャッシュも個別削除）
   for (const [id, entry] of priorityMap) {
     const fi = st.geoFeatures.findIndex(f => f.id === id);
-    if (fi !== -1) st.geoFeatures[fi] = entry;
+    if (fi !== -1) { st.geoFeatures[fi] = entry; st.paths.delete(id); }
   }
   render();
 
@@ -1042,7 +1102,7 @@ async function loadMap() {
     const t = Math.min((now-t0)/1100,1);
     const e = 1-Math.pow(1-t,3);
     st.scale = 0.5 + (1-0.5)*e;
-    render();
+    _doRender();
     if (t<1) requestAnimationFrame(intro);
   }
   requestAnimationFrame(intro);
