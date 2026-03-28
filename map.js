@@ -567,29 +567,86 @@ canvas.addEventListener('wheel', e => {
 }, { passive: false });
 
 // Touch
-let t0dist = 0;
+// ピンチ状態を独立管理
+let pinch = null; // { dist, cx, cy }
+
+function getTouchCanvasPos(touch) {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  return {
+    x: (touch.clientX - r.left) * scaleX,
+    y: (touch.clientY - r.top) * scaleY
+  };
+}
+
 canvas.addEventListener('touchstart', e => {
-  if (e.touches.length === 2) {
-    t0dist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+  e.preventDefault();
+  if (e.touches.length >= 2) {
+    // 2本指ピンチ開始：現在の中心点と距離を記録
+    const p0 = getTouchCanvasPos(e.touches[0]);
+    const p1 = getTouchCanvasPos(e.touches[1]);
+    pinch = {
+      dist: Math.hypot(p0.x-p1.x, p0.y-p1.y),
+      cx: (p0.x+p1.x)/2,
+      cy: (p0.y+p1.y)/2,
+    };
+    st.drag = false;
   } else {
+    pinch = null;
     st.drag=true; st.moved=false;
-    st.dragX=e.touches[0].clientX; st.dragY=e.touches[0].clientY;
+    const p = getTouchCanvasPos(e.touches[0]);
+    st.dragX=p.x; st.dragY=p.y;
     st.dragOX=st.offsetX; st.dragOY=st.offsetY;
   }
-},{passive:true});
+},{passive:false});
+
 canvas.addEventListener('touchmove', e=>{
   e.preventDefault();
-  if (e.touches.length===2) {
-    const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
-    const cx=(e.touches[0].clientX+e.touches[1].clientX)/2, cy=(e.touches[0].clientY+e.touches[1].clientY)/2;
-    zoomAt(d/t0dist,cx,cy); t0dist=d;
-  } else {
+  if (e.touches.length >= 2 && pinch) {
+    const p0 = getTouchCanvasPos(e.touches[0]);
+    const p1 = getTouchCanvasPos(e.touches[1]);
+    const newDist = Math.hypot(p0.x-p1.x, p0.y-p1.y);
+    const newCx = (p0.x+p1.x)/2;
+    const newCy = (p0.y+p1.y)/2;
+
+    // スケール変化を旧ピンチ中心に対して適用
+    if (pinch.dist > 0) {
+      const f = newDist / pinch.dist;
+      const prev = st.scale;
+      st.scale = Math.max(0.4, Math.min(30000, st.scale * f));
+      const r = st.scale / prev;
+      st.offsetX = pinch.cx - canvas.width/2 + (st.offsetX - (pinch.cx - canvas.width/2)) * r;
+      st.offsetY = pinch.cy - canvas.height/2 + (st.offsetY - (pinch.cy - canvas.height/2)) * r;
+    }
+
+    // 中心点の移動分をパンに反映
+    st.offsetX += newCx - pinch.cx;
+    st.offsetY += newCy - pinch.cy;
+
+    // 次フレーム用に更新
+    pinch.dist = newDist;
+    pinch.cx = newCx;
+    pinch.cy = newCy;
+
+    document.getElementById('zoom-level').textContent = st.scale >= 10
+      ? st.scale.toFixed(0)+'x'
+      : st.scale.toFixed(1)+'x';
+    maybeChangeResolution();
+    render();
+  } else if (e.touches.length === 1 && st.drag) {
     st.moved=true;
-    st.offsetX=st.dragOX+e.touches[0].clientX-st.dragX;
-    st.offsetY=st.dragOY+e.touches[0].clientY-st.dragY;
+    const p = getTouchCanvasPos(e.touches[0]);
+    st.offsetX=st.dragOX+p.x-st.dragX;
+    st.offsetY=st.dragOY+p.y-st.dragY;
     render();
   }
 },{passive:false});
+
+canvas.addEventListener('touchend', e => {
+  if (e.touches.length < 2) pinch = null;
+  if (e.touches.length === 0) st.drag = false;
+},{passive:true});
 
 // ── Zoom ─────────────────────────────────────────────
 function zoomAt(f, cx, cy) {
