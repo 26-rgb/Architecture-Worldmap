@@ -773,6 +773,15 @@ function showBldgPanel(i) {
   document.getElementById('bldg-place').textContent = b.place || '—';
   document.getElementById('bldg-coords').textContent =
     `${b.lat.toFixed(5)}°N  ${b.lng.toFixed(5)}°E`;
+  // Google Maps リンク
+  const gmapEl = document.getElementById('bldg-gmap');
+  if (b.lat != null && b.lng != null) {
+    const q = encodeURIComponent(b.name);
+    gmapEl.href = `https://www.google.com/maps/search/?api=1&query=${b.lat},${b.lng}&query_place_id=${q}`;
+    gmapEl.style.display = 'flex';
+  } else {
+    gmapEl.style.display = 'none';
+  }
   const img = document.getElementById('bldg-image');
   const wrap = document.getElementById('bldg-image-wrap');
   if (b.image) {
